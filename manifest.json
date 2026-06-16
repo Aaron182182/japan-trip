@@ -1,0 +1,17 @@
+{
+  "name": "Japan Trip Itinerary — Oct 2026",
+  "short_name": "Japan Trip",
+  "description": "Day-by-day itinerary, packing list, and budget tracker for the Oct 2026 Tokyo/Osaka trip.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FDF6E9",
+  "theme_color": "#C8372E",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

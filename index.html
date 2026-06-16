@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Japan Trip 2026</title>
+<meta name="theme-color" content="#C8372E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Japan Trip">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="header-top">
+    <input id="trip-name-input" class="trip-name-input" aria-label="Trip name">
+    <button id="menu-btn" class="icon-btn" aria-label="Menu">⋮</button>
+  </div>
+  <nav class="view-tabs" id="view-tabs">
+    <button class="view-tab active" data-view="itinerary">Itinerary</button>
+    <button class="view-tab" data-view="travel">Travel</button>
+    <button class="view-tab" data-view="packing">Packing</button>
+    <button class="view-tab" data-view="budget">Budget</button>
+  </nav>
+</header>
+
+<main id="app">
+  <section id="view-itinerary" class="view active">
+    <div class="trip-meta">
+      <label class="start-date-label">Trip starts
+        <input type="date" id="start-date-input">
+      </label>
+    </div>
+    <div class="day-tabs" id="day-tabs"></div>
+    <div id="day-content"></div>
+  </section>
+
+  <section id="view-travel" class="view">
+    <div id="travel-content"></div>
+  </section>
+
+  <section id="view-packing" class="view">
+    <div id="packing-content"></div>
+  </section>
+
+  <section id="view-budget" class="view">
+    <div id="budget-content"></div>
+  </section>
+</main>
+
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal" id="modal"></div>
+</div>
+
+<div id="menu-panel" class="menu-panel hidden">
+  <button id="export-btn">⬇ Export backup (.json)</button>
+  <button id="import-btn">⬆ Import backup (.json)</button>
+  <input type="file" id="import-file" accept="application/json" hidden>
+  <button id="share-btn">📋 Copy itinerary as text</button>
+  <button id="reset-btn" class="btn-danger-text">⟲ Reset to original sample data</button>
+</div>
+
+<script src="trip-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
