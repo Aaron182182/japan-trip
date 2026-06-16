@@ -37,6 +37,19 @@ const DEFAULT_TRIP = {
     { id: "t7", date: "2026-10-25", time: "07:00", mode: "Private transfer", from: "MIMARU Ueno Okachimachi", to: "Airport (NRT/HND)", provider: "", bookingRef: "", cost: 0, notes: "Departure transfer — time it to your return flight." }
   ],
 
+  accommodation: [
+    { id: "h1", name: "Tokyo Disney Resort Toy Story Hotel", address: "1-47 Maihama, Urayasu, Chiba 279-8511", checkIn: "2026-10-12", checkInTime: "15:00", checkOut: "2026-10-15", checkOutTime: "11:00", confirmationRef: "", cost: 0, confirmed: false, phone: "", email: "", website: "https://www.tokyodisneyresort.jp/en/hotel/tsh.html", notes: "Mobile check-in via the Tokyo Disney Resort app — you get a notification when the room is ready. Add your booking reference and the price you paid, then mark it Confirmed." },
+    { id: "h2", name: "The Park Front Hotel at Universal Studios Japan", address: "6-2-52 Shimaya, Konohana-ku, Osaka 554-0024", checkIn: "2026-10-15", checkInTime: "15:00", checkOut: "2026-10-19", checkOutTime: "12:00", confirmationRef: "", cost: 0, confirmed: false, phone: "", email: "", website: "https://en.parkfront-hotel.com/", notes: "About a 1-minute walk to the USJ main gate. Add your booking reference and price." },
+    { id: "h3", name: "Shibuya hotel (confirm exact name)", address: "Shibuya, Tokyo", checkIn: "2026-10-19", checkInTime: "15:00", checkOut: "2026-10-22", checkOutTime: "11:00", confirmationRef: "", cost: 0, confirmed: false, phone: "", email: "", website: "", notes: "Entered as \"Illi Mani\" from your earlier message — double-check the exact hotel name and address on your booking confirmation, update this card, then tap Search to pull up its contact details." },
+    { id: "h4", name: "MIMARU Tokyo Ueno Okachimachi", address: "1-17-1 Ueno, Taito-ku, Tokyo 110-0005", checkIn: "2026-10-22", checkInTime: "15:00", checkOut: "2026-10-25", checkOutTime: "11:00", confirmationRef: "", cost: 0, confirmed: false, phone: "+81 3-5817-8335", email: "", website: "https://mimaruhotels.com/en/hotel/ueno-okachimachi/", notes: "Apartment-style room with a kitchen. Phone, address and website are pre-filled from public info — verify against your own booking." }
+  ],
+
+  activityBookings: [
+    { id: "ab1", name: "Tokyo Disneyland 1-Day Passport", vendor: "Klook", date: "2026-10-13", time: "", voucherRef: "", cost: 0, confirmed: false, location: "Tokyo Disneyland", phone: "", website: "", klookUrl: "", notes: "If you booked this on Klook, paste the voucher code and the price you paid, then tap 🎟️ Klook to open your Klook bookings (sign in to Klook to see vouchers)." },
+    { id: "ab2", name: "Tokyo DisneySea 1-Day Passport", vendor: "Klook", date: "2026-10-14", time: "", voucherRef: "", cost: 0, confirmed: false, location: "Tokyo DisneySea", phone: "", website: "", klookUrl: "", notes: "" },
+    { id: "ab3", name: "Universal Studios Japan 1-Day Studio Pass", vendor: "Klook", date: "2026-10-16", time: "", voucherRef: "", cost: 0, confirmed: false, location: "Universal Studios Japan", phone: "", website: "", klookUrl: "", notes: "" }
+  ],
+
   days: [
     {
       id: "d1", city: "Tokyo — Disney Resort", hotel: "Tokyo Disney Resort Toy Story Hotel",

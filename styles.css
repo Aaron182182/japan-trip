@@ -379,6 +379,53 @@ main { max-width: 720px; margin: 0 auto; padding: 0 0.85rem; }
 .form-row { display: flex; gap: 0.6rem; }
 .form-row label { flex: 1; }
 
+/* Bookings hub: summary, status, costs, action buttons */
+
+.bookings-summary {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  margin: 0.85rem 0 0.25rem;
+  box-shadow: var(--shadow);
+}
+.bookings-summary .budget-disclaimer { margin-bottom: 0; }
+
+.booking-status-row { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+.status-badge { font-size: 0.7rem; font-weight: 700; border-radius: 999px; padding: 0.15rem 0.6rem; white-space: nowrap; }
+.status-badge.confirmed { background: rgba(31, 122, 60, 0.15); color: #1f7a3c; }
+.status-badge.pending { background: rgba(107, 98, 88, 0.15); color: var(--text-muted); }
+@media (prefers-color-scheme: dark) {
+  .status-badge.confirmed { background: rgba(90, 200, 130, 0.18); color: #7fd6a0; }
+}
+.booking-cost { font-size: 0.9rem; font-weight: 700; color: var(--primary); white-space: nowrap; }
+
+.action-row { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.65rem; }
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--accent);
+  background: rgba(31, 58, 95, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  white-space: nowrap;
+}
+.action-btn:active { transform: scale(0.96); }
+.action-btn.action-klook { color: #ff5b00; background: rgba(255, 91, 0, 0.1); }
+@media (prefers-color-scheme: dark) {
+  .action-btn { background: rgba(111, 149, 194, 0.12); }
+  .action-btn.action-klook { background: rgba(255, 91, 0, 0.16); }
+}
+
+.budget-confirmed-line { margin-top: 0.6rem; font-size: 0.9rem; color: var(--text); }
+.budget-confirmed-line strong { color: var(--primary); }
+.budget-confirmed-line .muted { color: var(--text-muted); font-size: 0.8rem; }
+
 /* Budget (dual currency) */
 
 .budget-summary {

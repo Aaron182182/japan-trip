@@ -21,16 +21,25 @@ function clone(obj) {
   return typeof structuredClone === "function" ? structuredClone(obj) : JSON.parse(JSON.stringify(obj));
 }
 
-// Fill in any top-level keys added in newer versions so trips already saved
+// Fill in any keys/fields added in newer versions so trips already saved
 // in localStorage (from an earlier version) gain the new sections cleanly.
+// Runs on every load — including the fresh seed — so all records are normalized.
 function migrate(t) {
-  if (!t || typeof t !== "object") return clone(DEFAULT_TRIP);
+  if (!t || typeof t !== "object") t = clone(DEFAULT_TRIP);
   if (typeof t.jpyPerAud !== "number" || !t.jpyPerAud) t.jpyPerAud = DEFAULT_TRIP.jpyPerAud;
-  if (!Array.isArray(t.flights)) t.flights = clone(DEFAULT_TRIP.flights);
-  if (!Array.isArray(t.transfers)) t.transfers = clone(DEFAULT_TRIP.transfers);
-  if (!Array.isArray(t.packingList)) t.packingList = clone(DEFAULT_TRIP.packingList);
-  if (!Array.isArray(t.budget)) t.budget = clone(DEFAULT_TRIP.budget);
-  if (!Array.isArray(t.days)) t.days = clone(DEFAULT_TRIP.days);
+  ["flights", "transfers", "accommodation", "activityBookings", "packingList", "budget", "days"].forEach((k) => {
+    if (!Array.isArray(t[k])) t[k] = clone(DEFAULT_TRIP[k] || []);
+  });
+  // Backfill booking fields added with the Bookings hub.
+  t.flights.forEach((f) => {
+    f.cost = Number(f.cost) || 0;
+    if (typeof f.confirmed !== "boolean") f.confirmed = false;
+    f.phone = f.phone || ""; f.website = f.website || "";
+  });
+  t.transfers.forEach((x) => {
+    if (typeof x.confirmed !== "boolean") x.confirmed = false;
+    x.phone = x.phone || ""; x.website = x.website || ""; x.email = x.email || "";
+  });
   return t;
 }
 
@@ -41,7 +50,7 @@ function loadTrip() {
   } catch (e) {
     console.warn("Could not read saved trip, falling back to sample data.", e);
   }
-  return clone(DEFAULT_TRIP);
+  return migrate(clone(DEFAULT_TRIP));
 }
 
 function saveTrip() {
@@ -89,6 +98,70 @@ function formatDateOnly(isoDateStr) {
 
 function mapsUrl(query) {
   return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(query);
+}
+
+const KLOOK_BOOKINGS_URL = "https://www.klook.com/booking/";
+
+function directionsUrl(destination, mode, origin) {
+  const params = new URLSearchParams({ api: "1", destination });
+  if (origin) params.set("origin", origin);
+  if (mode) params.set("travelmode", mode);
+  return "https://www.google.com/maps/dir/?" + params.toString();
+}
+
+function telHref(phone) {
+  return "tel:" + String(phone).replace(/[^+\d]/g, "");
+}
+
+function searchUrl(q) {
+  return "https://www.google.com/search?q=" + encodeURIComponent(q);
+}
+
+function normalizeUrl(u) {
+  if (!u) return "";
+  return /^https?:\/\//i.test(u) ? u : "https://" + u;
+}
+
+// Builds a row of one-tap action buttons (Map / transit Route / Taxi / Call /
+// Site / Email / Search / Klook) from whichever fields a booking has.
+function bookingActions(o) {
+  const btns = [];
+  if (o.mapQuery) btns.push(`<a class="action-btn" href="${mapsUrl(o.mapQuery)}" target="_blank" rel="noopener">📍 Map</a>`);
+  if (o.dirDestination) {
+    btns.push(`<a class="action-btn" href="${directionsUrl(o.dirDestination, "transit", o.dirOrigin)}" target="_blank" rel="noopener">🚆 Route</a>`);
+    btns.push(`<a class="action-btn" href="${directionsUrl(o.dirDestination, "driving", o.dirOrigin)}" target="_blank" rel="noopener">🚕 Taxi</a>`);
+  }
+  if (o.phone) btns.push(`<a class="action-btn" href="${telHref(o.phone)}">📞 Call</a>`);
+  if (o.website) btns.push(`<a class="action-btn" href="${escapeHtml(normalizeUrl(o.website))}" target="_blank" rel="noopener">🌐 Site</a>`);
+  if (o.email) btns.push(`<a class="action-btn" href="mailto:${escapeHtml(o.email)}">✉️ Email</a>`);
+  if (o.searchQuery) btns.push(`<a class="action-btn" href="${searchUrl(o.searchQuery)}" target="_blank" rel="noopener">🔎 Search</a>`);
+  if (o.klook) btns.push(`<a class="action-btn action-klook" href="${escapeHtml(o.klook === true ? KLOOK_BOOKINGS_URL : normalizeUrl(o.klook))}" target="_blank" rel="noopener">🎟️ Klook</a>`);
+  return btns.length ? `<div class="action-row">${btns.join("")}</div>` : "";
+}
+
+function statusBadge(confirmed) {
+  return confirmed
+    ? '<span class="status-badge confirmed">✓ Confirmed</span>'
+    : '<span class="status-badge pending">Pending</span>';
+}
+
+function nightsBetween(inDate, outDate) {
+  if (!inDate || !outDate) return 0;
+  const a = new Date(inDate + "T00:00:00"), b = new Date(outDate + "T00:00:00");
+  const n = Math.round((b - a) / 86400000);
+  return n > 0 ? n : 0;
+}
+
+function allBookings() {
+  return [...trip.flights, ...trip.accommodation, ...trip.transfers, ...trip.activityBookings];
+}
+
+function confirmedBookingsTotal() {
+  return allBookings().reduce((s, b) => s + (b.confirmed ? Number(b.cost) || 0 : 0), 0);
+}
+
+function bookingsGrandTotal() {
+  return allBookings().reduce((s, b) => s + (Number(b.cost) || 0), 0);
 }
 
 function money(n) {
@@ -343,14 +416,20 @@ function closeModal() {
 
 // ---------- Rendering: travel (flights + transfers) ----------
 
+function costLine(b) {
+  return b.cost ? `<span class="booking-cost">${money(b.cost)} ≈ ${moneyAud(b.cost)}</span>` : "";
+}
+
 function flightCard(f) {
   const headline = [f.airline, f.flightNumber].filter(Boolean).join(" ") || "Flight details not set yet";
+  const searchQ = ([f.airline, f.flightNumber].filter(Boolean).join(" ") || f.label) + " flight status";
   return `
     <div class="travel-card" data-flight-id="${f.id}">
       <div class="travel-card-head">
         <span class="travel-card-label">✈️ ${escapeHtml(f.label || "Flight")}</span>
         <button class="btn-text" data-edit-flight="${f.id}">Edit</button>
       </div>
+      <div class="booking-status-row">${statusBadge(f.confirmed)}${costLine(f)}</div>
       <div class="flight-headline">${escapeHtml(headline)}</div>
       <div class="flight-legs">
         <div class="flight-leg">
@@ -367,6 +446,7 @@ function flightCard(f) {
       </div>
       ${(f.bookingRef || f.seats) ? `<div class="travel-meta">${f.bookingRef ? `<span>Ref: ${escapeHtml(f.bookingRef)}</span>` : ""}${f.seats ? `<span>Seats: ${escapeHtml(f.seats)}</span>` : ""}</div>` : ""}
       ${f.notes ? `<p class="travel-notes">${escapeHtml(f.notes)}</p>` : ""}
+      ${bookingActions({ mapQuery: f.arrAirport, searchQuery: searchQ, phone: f.phone, website: f.website })}
     </div>`;
 }
 
@@ -377,6 +457,7 @@ function transferCard(t) {
         <span class="travel-card-label">🚕 ${escapeHtml(t.mode || "Transfer")}</span>
         <button class="btn-text" data-edit-transfer="${t.id}">Edit</button>
       </div>
+      <div class="booking-status-row">${statusBadge(t.confirmed)}${costLine(t)}</div>
       <div class="transfer-route">
         <span class="transfer-from">${escapeHtml(t.from || "—")}</span>
         <span class="flight-arrow">→</span>
@@ -386,43 +467,126 @@ function transferCard(t) {
         <span>📅 ${formatDateOnly(t.date)}${t.time ? " · " + escapeHtml(t.time) : ""}</span>
         ${t.provider ? `<span>${escapeHtml(t.provider)}</span>` : ""}
         ${t.bookingRef ? `<span>Ref: ${escapeHtml(t.bookingRef)}</span>` : ""}
-        ${t.cost ? `<span>${money(t.cost)} ≈ ${moneyAud(t.cost)}</span>` : ""}
       </div>
       ${t.notes ? `<p class="travel-notes">${escapeHtml(t.notes)}</p>` : ""}
+      ${bookingActions({ mapQuery: t.to, dirDestination: t.to, dirOrigin: t.from, searchQuery: t.provider || (t.from + " to " + t.to), phone: t.phone, website: t.website, email: t.email })}
+    </div>`;
+}
+
+function accommodationCard(h) {
+  const nights = nightsBetween(h.checkIn, h.checkOut);
+  return `
+    <div class="travel-card" data-acc-id="${h.id}">
+      <div class="travel-card-head">
+        <span class="travel-card-label">🏨 ${escapeHtml(h.name || "Hotel")}</span>
+        <button class="btn-text" data-edit-acc="${h.id}">Edit</button>
+      </div>
+      <div class="booking-status-row">${statusBadge(h.confirmed)}${costLine(h)}</div>
+      ${h.address ? `<div class="travel-meta"><span>📍 ${escapeHtml(h.address)}</span></div>` : ""}
+      <div class="travel-meta">
+        <span>🛏️ ${formatDateOnly(h.checkIn)}${h.checkInTime ? " " + escapeHtml(h.checkInTime) : ""} → ${formatDateOnly(h.checkOut)}${h.checkOutTime ? " " + escapeHtml(h.checkOutTime) : ""}${nights ? ` · ${nights} night${nights > 1 ? "s" : ""}` : ""}</span>
+      </div>
+      ${(h.confirmationRef || h.phone) ? `<div class="travel-meta">${h.confirmationRef ? `<span>Conf: ${escapeHtml(h.confirmationRef)}</span>` : ""}${h.phone ? `<span>📞 ${escapeHtml(h.phone)}</span>` : ""}</div>` : ""}
+      ${h.notes ? `<p class="travel-notes">${escapeHtml(h.notes)}</p>` : ""}
+      ${bookingActions({ mapQuery: h.address || h.name, dirDestination: h.address || h.name, phone: h.phone, email: h.email, website: h.website, searchQuery: h.name })}
+    </div>`;
+}
+
+function activityCard(a) {
+  const isKlook = /klook/i.test(a.vendor || "");
+  return `
+    <div class="travel-card" data-actbk-id="${a.id}">
+      <div class="travel-card-head">
+        <span class="travel-card-label">🎟️ ${escapeHtml(a.name || "Activity")}</span>
+        <button class="btn-text" data-edit-actbk="${a.id}">Edit</button>
+      </div>
+      <div class="booking-status-row">${statusBadge(a.confirmed)}${costLine(a)}</div>
+      <div class="travel-meta">
+        ${a.vendor ? `<span>${escapeHtml(a.vendor)}</span>` : ""}
+        ${a.date ? `<span>📅 ${formatDateOnly(a.date)}${a.time ? " · " + escapeHtml(a.time) : ""}</span>` : ""}
+        ${a.voucherRef ? `<span>Voucher: ${escapeHtml(a.voucherRef)}</span>` : ""}
+        ${a.location ? `<span>📍 ${escapeHtml(a.location)}</span>` : ""}
+      </div>
+      ${a.notes ? `<p class="travel-notes">${escapeHtml(a.notes)}</p>` : ""}
+      ${bookingActions({ mapQuery: a.location, dirDestination: a.location, phone: a.phone, website: a.website, searchQuery: [a.name, a.vendor].filter(Boolean).join(" "), klook: a.klookUrl || (isKlook ? true : "") })}
     </div>`;
 }
 
 function renderTravel() {
   const container = document.getElementById("travel-content");
   const transfers = [...trip.transfers].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  const accommodation = [...trip.accommodation].sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || ""));
+  const activities = [...trip.activityBookings].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+  const confirmed = confirmedBookingsTotal();
+  const grand = bookingsGrandTotal();
+
   container.innerHTML = `
+    <div class="bookings-summary">
+      <div class="budget-totals">
+        <div class="budget-total-block">
+          <span class="budget-total-label">Confirmed bookings</span>
+          <span class="budget-total-jpy">${money(confirmed)}</span>
+          <span class="budget-total-aud">≈ ${moneyAud(confirmed)}</span>
+        </div>
+        <div class="budget-total-block">
+          <span class="budget-total-label">All (incl. unconfirmed)</span>
+          <span class="budget-total-jpy">${money(grand)}</span>
+          <span class="budget-total-aud">≈ ${moneyAud(grand)}</span>
+        </div>
+      </div>
+      <p class="budget-disclaimer">Add your real booking refs and prices, then flip a booking to <strong>Confirmed</strong> — the Confirmed total reflects only what you've actually locked in. 🎟️ <strong>Klook</strong> opens your Klook bookings (sign in to Klook to view vouchers); the app can't import them automatically.</p>
+    </div>
+
     <div class="travel-section">
       <div class="travel-section-head">
-        <h2>Flights</h2>
-        <button class="btn-secondary" id="add-flight-btn">+ Add flight</button>
+        <h2>✈️ Flights</h2>
+        <button class="btn-secondary" id="add-flight-btn">+ Add</button>
       </div>
       ${trip.flights.map(flightCard).join("") || '<p class="empty">No flights yet.</p>'}
     </div>
+
     <div class="travel-section">
       <div class="travel-section-head">
-        <h2>Transport & transfers</h2>
-        <button class="btn-secondary" id="add-transfer-btn">+ Add transfer</button>
+        <h2>🏨 Accommodation</h2>
+        <button class="btn-secondary" id="add-acc-btn">+ Add</button>
+      </div>
+      ${accommodation.map(accommodationCard).join("") || '<p class="empty">No hotels yet.</p>'}
+    </div>
+
+    <div class="travel-section">
+      <div class="travel-section-head">
+        <h2>🚕 Transport &amp; transfers</h2>
+        <button class="btn-secondary" id="add-transfer-btn">+ Add</button>
       </div>
       ${transfers.map(transferCard).join("") || '<p class="empty">No transfers yet.</p>'}
+    </div>
+
+    <div class="travel-section">
+      <div class="travel-section-head">
+        <h2>🎟️ Activities &amp; tickets</h2>
+        <button class="btn-secondary" id="add-actbk-btn">+ Add</button>
+      </div>
+      ${activities.map(activityCard).join("") || '<p class="empty">No activity bookings yet.</p>'}
     </div>
   `;
 
   document.getElementById("add-flight-btn").addEventListener("click", () => openFlightModal());
+  document.getElementById("add-acc-btn").addEventListener("click", () => openAccommodationModal());
   document.getElementById("add-transfer-btn").addEventListener("click", () => openTransferModal());
+  document.getElementById("add-actbk-btn").addEventListener("click", () => openActivityBookingModal());
   container.querySelectorAll("[data-edit-flight]").forEach((btn) =>
     btn.addEventListener("click", () => openFlightModal(trip.flights.find((f) => f.id === btn.dataset.editFlight))));
+  container.querySelectorAll("[data-edit-acc]").forEach((btn) =>
+    btn.addEventListener("click", () => openAccommodationModal(trip.accommodation.find((h) => h.id === btn.dataset.editAcc))));
   container.querySelectorAll("[data-edit-transfer]").forEach((btn) =>
     btn.addEventListener("click", () => openTransferModal(trip.transfers.find((t) => t.id === btn.dataset.editTransfer))));
+  container.querySelectorAll("[data-edit-actbk]").forEach((btn) =>
+    btn.addEventListener("click", () => openActivityBookingModal(trip.activityBookings.find((a) => a.id === btn.dataset.editActbk))));
 }
 
 function openFlightModal(flight) {
   const isEdit = !!flight;
-  const f = flight || { label: "", airline: "", flightNumber: "", depAirport: "", depDateTime: "", arrAirport: "", arrDateTime: "", bookingRef: "", seats: "", notes: "" };
+  const f = flight || { label: "", airline: "", flightNumber: "", depAirport: "", depDateTime: "", arrAirport: "", arrDateTime: "", bookingRef: "", seats: "", cost: 0, phone: "", website: "", confirmed: false, notes: "" };
   const modal = document.getElementById("modal");
   modal.innerHTML = `
     <h2>${isEdit ? "Edit" : "Add"} flight</h2>
@@ -458,8 +622,23 @@ function openFlightModal(flight) {
           <input type="text" name="seats" value="${escapeHtml(f.seats)}" placeholder="e.g. 32A, 32B">
         </label>
       </div>
+      <div class="form-row">
+        <label>Cost (¥)
+          <input type="number" name="cost" value="${f.cost || 0}" min="0" step="100">
+        </label>
+        <label>Airline phone
+          <input type="text" name="phone" value="${escapeHtml(f.phone || "")}" placeholder="for the Call button">
+        </label>
+      </div>
+      <label>Airline website
+        <input type="text" name="website" value="${escapeHtml(f.website || "")}" placeholder="e.g. qantas.com">
+      </label>
       <label>Notes
         <textarea name="notes" rows="2">${escapeHtml(f.notes)}</textarea>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmed" ${f.confirmed ? "checked" : ""}>
+        Confirmed / booked
       </label>
       <div class="modal-actions">
         ${isEdit ? '<button type="button" id="delete-flight-btn" class="btn-danger">Delete</button>' : ""}
@@ -477,7 +656,9 @@ function openFlightModal(flight) {
       label: fd.get("label").trim(), airline: fd.get("airline").trim(), flightNumber: fd.get("flightNumber").trim(),
       depAirport: fd.get("depAirport").trim(), depDateTime: fd.get("depDateTime"),
       arrAirport: fd.get("arrAirport").trim(), arrDateTime: fd.get("arrDateTime"),
-      bookingRef: fd.get("bookingRef").trim(), seats: fd.get("seats").trim(), notes: fd.get("notes").trim()
+      bookingRef: fd.get("bookingRef").trim(), seats: fd.get("seats").trim(),
+      cost: Number(fd.get("cost")) || 0, phone: fd.get("phone").trim(), website: fd.get("website").trim(),
+      confirmed: fd.get("confirmed") === "on", notes: fd.get("notes").trim()
     };
     if (isEdit) Object.assign(flight, data);
     else trip.flights.push({ id: uid("f"), ...data });
@@ -500,7 +681,7 @@ function openFlightModal(flight) {
 
 function openTransferModal(transfer) {
   const isEdit = !!transfer;
-  const t = transfer || { date: trip.startDate, time: "12:00", mode: "Private transfer", from: "", to: "", provider: "", bookingRef: "", cost: 0, notes: "" };
+  const t = transfer || { date: trip.startDate, time: "12:00", mode: "Private transfer", from: "", to: "", provider: "", bookingRef: "", cost: 0, phone: "", website: "", email: "", confirmed: false, notes: "" };
   const modal = document.getElementById("modal");
   modal.innerHTML = `
     <h2>${isEdit ? "Edit" : "Add"} transfer</h2>
@@ -532,11 +713,28 @@ function openTransferModal(transfer) {
           <input type="text" name="bookingRef" value="${escapeHtml(t.bookingRef)}">
         </label>
       </div>
-      <label>Cost (¥)
-        <input type="number" name="cost" value="${t.cost || 0}" min="0" step="100">
-      </label>
+      <div class="form-row">
+        <label>Cost (¥)
+          <input type="number" name="cost" value="${t.cost || 0}" min="0" step="100">
+        </label>
+        <label>Phone
+          <input type="text" name="phone" value="${escapeHtml(t.phone || "")}" placeholder="driver / company">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Website
+          <input type="text" name="website" value="${escapeHtml(t.website || "")}">
+        </label>
+        <label>Email
+          <input type="text" name="email" value="${escapeHtml(t.email || "")}">
+        </label>
+      </div>
       <label>Notes
         <textarea name="notes" rows="2">${escapeHtml(t.notes)}</textarea>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmed" ${t.confirmed ? "checked" : ""}>
+        Confirmed / booked
       </label>
       <div class="modal-actions">
         ${isEdit ? '<button type="button" id="delete-transfer-btn" class="btn-danger">Delete</button>' : ""}
@@ -554,7 +752,8 @@ function openTransferModal(transfer) {
       date: fd.get("date"), time: fd.get("time"), mode: fd.get("mode"),
       from: fd.get("from").trim(), to: fd.get("to").trim(),
       provider: fd.get("provider").trim(), bookingRef: fd.get("bookingRef").trim(),
-      cost: Number(fd.get("cost")) || 0, notes: fd.get("notes").trim()
+      cost: Number(fd.get("cost")) || 0, phone: fd.get("phone").trim(), website: fd.get("website").trim(),
+      email: fd.get("email").trim(), confirmed: fd.get("confirmed") === "on", notes: fd.get("notes").trim()
     };
     if (isEdit) Object.assign(transfer, data);
     else trip.transfers.push({ id: uid("t"), ...data });
@@ -567,6 +766,189 @@ function openTransferModal(transfer) {
     document.getElementById("delete-transfer-btn").addEventListener("click", () => {
       if (confirm("Delete this transfer?")) {
         trip.transfers = trip.transfers.filter((x) => x.id !== transfer.id);
+        saveTrip();
+        renderTravel();
+        closeModal();
+      }
+    });
+  }
+}
+
+function openAccommodationModal(hotel) {
+  const isEdit = !!hotel;
+  const h = hotel || { name: "", address: "", checkIn: trip.startDate, checkInTime: "15:00", checkOut: "", checkOutTime: "11:00", confirmationRef: "", cost: 0, phone: "", email: "", website: "", confirmed: false, notes: "" };
+  const modal = document.getElementById("modal");
+  modal.innerHTML = `
+    <h2>${isEdit ? "Edit" : "Add"} hotel</h2>
+    <form id="acc-form">
+      <label>Hotel name
+        <input type="text" name="name" value="${escapeHtml(h.name)}" required>
+      </label>
+      <label>Address
+        <input type="text" name="address" value="${escapeHtml(h.address)}" placeholder="Used for Map & directions">
+      </label>
+      <div class="form-row">
+        <label>Check-in
+          <input type="date" name="checkIn" value="${escapeHtml(h.checkIn || "")}">
+        </label>
+        <label>Time
+          <input type="time" name="checkInTime" value="${escapeHtml(h.checkInTime || "")}">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Check-out
+          <input type="date" name="checkOut" value="${escapeHtml(h.checkOut || "")}">
+        </label>
+        <label>Time
+          <input type="time" name="checkOutTime" value="${escapeHtml(h.checkOutTime || "")}">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Confirmation #
+          <input type="text" name="confirmationRef" value="${escapeHtml(h.confirmationRef)}">
+        </label>
+        <label>Cost (¥)
+          <input type="number" name="cost" value="${h.cost || 0}" min="0" step="100">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Phone
+          <input type="text" name="phone" value="${escapeHtml(h.phone)}">
+        </label>
+        <label>Email
+          <input type="text" name="email" value="${escapeHtml(h.email)}">
+        </label>
+      </div>
+      <label>Website
+        <input type="text" name="website" value="${escapeHtml(h.website)}">
+      </label>
+      <label>Notes
+        <textarea name="notes" rows="2">${escapeHtml(h.notes)}</textarea>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmed" ${h.confirmed ? "checked" : ""}>
+        Confirmed / booked
+      </label>
+      <div class="modal-actions">
+        ${isEdit ? '<button type="button" id="delete-acc-btn" class="btn-danger">Delete</button>' : ""}
+        <button type="button" id="cancel-modal-btn" class="btn-secondary">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  `;
+  showModal();
+  const form = document.getElementById("acc-form");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const data = {
+      name: fd.get("name").trim(), address: fd.get("address").trim(),
+      checkIn: fd.get("checkIn"), checkInTime: fd.get("checkInTime"),
+      checkOut: fd.get("checkOut"), checkOutTime: fd.get("checkOutTime"),
+      confirmationRef: fd.get("confirmationRef").trim(), cost: Number(fd.get("cost")) || 0,
+      phone: fd.get("phone").trim(), email: fd.get("email").trim(), website: fd.get("website").trim(),
+      confirmed: fd.get("confirmed") === "on", notes: fd.get("notes").trim()
+    };
+    if (isEdit) Object.assign(hotel, data);
+    else trip.accommodation.push({ id: uid("h"), ...data });
+    saveTrip();
+    renderTravel();
+    closeModal();
+  });
+  document.getElementById("cancel-modal-btn").addEventListener("click", closeModal);
+  if (isEdit) {
+    document.getElementById("delete-acc-btn").addEventListener("click", () => {
+      if (confirm("Delete this hotel booking?")) {
+        trip.accommodation = trip.accommodation.filter((x) => x.id !== hotel.id);
+        saveTrip();
+        renderTravel();
+        closeModal();
+      }
+    });
+  }
+}
+
+function openActivityBookingModal(act) {
+  const isEdit = !!act;
+  const a = act || { name: "", vendor: "Klook", date: trip.startDate, time: "", voucherRef: "", cost: 0, location: "", phone: "", website: "", klookUrl: "", confirmed: false, notes: "" };
+  const modal = document.getElementById("modal");
+  modal.innerHTML = `
+    <h2>${isEdit ? "Edit" : "Add"} activity / ticket</h2>
+    <form id="actbk-form">
+      <label>Name
+        <input type="text" name="name" value="${escapeHtml(a.name)}" placeholder="e.g. USJ 1-Day Studio Pass" required>
+      </label>
+      <div class="form-row">
+        <label>Vendor
+          <input type="text" name="vendor" value="${escapeHtml(a.vendor)}" placeholder="e.g. Klook">
+        </label>
+        <label>Date
+          <input type="date" name="date" value="${escapeHtml(a.date || "")}">
+        </label>
+      </div>
+      <div class="form-row">
+        <label>Time
+          <input type="time" name="time" value="${escapeHtml(a.time || "")}">
+        </label>
+        <label>Cost (¥)
+          <input type="number" name="cost" value="${a.cost || 0}" min="0" step="100">
+        </label>
+      </div>
+      <label>Voucher / booking ref
+        <input type="text" name="voucherRef" value="${escapeHtml(a.voucherRef)}">
+      </label>
+      <label>Location
+        <input type="text" name="location" value="${escapeHtml(a.location)}" placeholder="Used for Map & directions">
+      </label>
+      <div class="form-row">
+        <label>Phone
+          <input type="text" name="phone" value="${escapeHtml(a.phone)}">
+        </label>
+        <label>Website
+          <input type="text" name="website" value="${escapeHtml(a.website)}">
+        </label>
+      </div>
+      <label>Klook booking link (optional)
+        <input type="text" name="klookUrl" value="${escapeHtml(a.klookUrl)}" placeholder="Blank = open Klook bookings page">
+      </label>
+      <label>Notes
+        <textarea name="notes" rows="2">${escapeHtml(a.notes)}</textarea>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="confirmed" ${a.confirmed ? "checked" : ""}>
+        Confirmed / booked
+      </label>
+      <div class="modal-actions">
+        ${isEdit ? '<button type="button" id="delete-actbk-btn" class="btn-danger">Delete</button>' : ""}
+        <button type="button" id="cancel-modal-btn" class="btn-secondary">Cancel</button>
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  `;
+  showModal();
+  const form = document.getElementById("actbk-form");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const data = {
+      name: fd.get("name").trim(), vendor: fd.get("vendor").trim(),
+      date: fd.get("date"), time: fd.get("time"),
+      voucherRef: fd.get("voucherRef").trim(), cost: Number(fd.get("cost")) || 0,
+      location: fd.get("location").trim(), phone: fd.get("phone").trim(),
+      website: fd.get("website").trim(), klookUrl: fd.get("klookUrl").trim(),
+      confirmed: fd.get("confirmed") === "on", notes: fd.get("notes").trim()
+    };
+    if (isEdit) Object.assign(act, data);
+    else trip.activityBookings.push({ id: uid("ab"), ...data });
+    saveTrip();
+    renderTravel();
+    closeModal();
+  });
+  document.getElementById("cancel-modal-btn").addEventListener("click", closeModal);
+  if (isEdit) {
+    document.getElementById("delete-actbk-btn").addEventListener("click", () => {
+      if (confirm("Delete this activity booking?")) {
+        trip.activityBookings = trip.activityBookings.filter((x) => x.id !== act.id);
         saveTrip();
         renderTravel();
         closeModal();
@@ -640,6 +1022,7 @@ function renderBudget() {
   const container = document.getElementById("budget-content");
   const totalEst = trip.budget.reduce((s, b) => s + (Number(b.estimated) || 0), 0);
   const totalAct = trip.budget.reduce((s, b) => s + (Number(b.actual) || 0), 0);
+  const confirmed = confirmedBookingsTotal();
 
   container.innerHTML = `
     <div class="budget-summary">
@@ -656,6 +1039,7 @@ function renderBudget() {
           <span class="budget-total-aud">≈ ${moneyAud(totalAct)}</span>
         </div>
       </div>
+      <div class="budget-confirmed-line">Confirmed bookings: <strong>${money(confirmed)}</strong> ≈ ${moneyAud(confirmed)} <span class="muted">— real total from the Bookings tab</span></div>
     </div>
     <p class="budget-disclaimer">Estimates are rough planning placeholders (some based on dynamic theme-park pricing). The AUD rate is editable above — set it to your card's real rate.</p>
     <div class="budget-cards">
@@ -735,6 +1119,14 @@ function buildShareText() {
       const name = [f.airline, f.flightNumber].filter(Boolean).join(" ") || f.label;
       lines.push(`  ${f.label}: ${name}`);
       lines.push(`    ${f.depAirport} ${formatDateTime(f.depDateTime)} → ${f.arrAirport} ${formatDateTime(f.arrDateTime)}`);
+    });
+    lines.push("");
+  }
+  if (trip.accommodation.length) {
+    lines.push("ACCOMMODATION");
+    [...trip.accommodation].sort((a, b) => (a.checkIn || "").localeCompare(b.checkIn || "")).forEach((h) => {
+      lines.push(`  ${h.name}${h.confirmationRef ? " — conf " + h.confirmationRef : ""}`);
+      lines.push(`    ${formatDateOnly(h.checkIn)} → ${formatDateOnly(h.checkOut)}${h.address ? " — " + h.address : ""}${h.phone ? " — " + h.phone : ""}`);
     });
     lines.push("");
   }
@@ -848,7 +1240,7 @@ function wireStaticHandlers() {
 
   document.getElementById("reset-btn").addEventListener("click", () => {
     if (confirm("Reset everything back to the original sample itinerary? This cannot be undone.")) {
-      trip = clone(DEFAULT_TRIP);
+      trip = migrate(clone(DEFAULT_TRIP));
       activeDayId = trip.days[0] ? trip.days[0].id : null;
       saveTrip();
       renderAll();
