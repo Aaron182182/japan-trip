@@ -7,6 +7,7 @@ const DEFAULT_TRIP = {
   startDate: "2026-10-12",
   currency: "JPY",
   jpyPerAud: 113, // 1 AUD = this many yen. Editable on the Budget tab.
+  budgetInputCurrency: "JPY", // "JPY" or "AUD" — which currency you type budget amounts in.
 
   flights: [
     {

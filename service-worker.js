@@ -1,10 +1,10 @@
-const CACHE_NAME = "japan-trip-v5";
+const CACHE_NAME = "japan-trip-v6";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./styles.css?v=5",
-  "./app.js?v=5",
-  "./trip-data.js?v=5",
+  "./styles.css?v=6",
+  "./app.js?v=6",
+  "./trip-data.js?v=6",
   "./manifest.json",
   "./icon.svg",
   "./icon-192.png",

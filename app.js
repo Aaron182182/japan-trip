@@ -27,6 +27,7 @@ function clone(obj) {
 function migrate(t) {
   if (!t || typeof t !== "object") t = clone(DEFAULT_TRIP);
   if (typeof t.jpyPerAud !== "number" || !t.jpyPerAud) t.jpyPerAud = DEFAULT_TRIP.jpyPerAud;
+  if (t.budgetInputCurrency !== "AUD") t.budgetInputCurrency = "JPY";
   ["flights", "transfers", "accommodation", "activityBookings", "packingList", "budget", "days"].forEach((k) => {
     if (!Array.isArray(t[k])) t[k] = clone(DEFAULT_TRIP[k] || []);
   });
@@ -175,6 +176,11 @@ function toAud(jpy) {
 
 function moneyAud(jpy) {
   return "A$" + toAud(jpy).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function jpyFromAud(aud) {
+  const rate = Number(trip.jpyPerAud) || DEFAULT_TRIP.jpyPerAud;
+  return Math.round((Number(aud) || 0) * rate);
 }
 
 function groupBy(arr, key) {
@@ -1020,28 +1026,45 @@ function renderPacking() {
 
 function renderBudget() {
   const container = document.getElementById("budget-content");
+  const mode = trip.budgetInputCurrency === "AUD" ? "AUD" : "JPY";
   const totalEst = trip.budget.reduce((s, b) => s + (Number(b.estimated) || 0), 0);
   const totalAct = trip.budget.reduce((s, b) => s + (Number(b.actual) || 0), 0);
   const confirmed = confirmedBookingsTotal();
+  // All amounts are stored in yen; these helpers present them in the chosen
+  // input currency (primary) with the other currency as the conversion (sub).
+  const primary = (jpy) => (mode === "AUD" ? moneyAud(jpy) : money(jpy));
+  const sub = (jpy) => (mode === "AUD" ? money(jpy) : moneyAud(jpy));
+  const inputVal = (jpy) => (mode === "AUD" ? Math.round(toAud(jpy) * 100) / 100 : Number(jpy) || 0);
+  const step = mode === "AUD" ? "0.01" : "100";
+  const unit = mode === "AUD" ? "A$" : "¥";
 
   container.innerHTML = `
     <div class="budget-summary">
-      <label class="rate-field">1 AUD = ¥<input type="number" id="rate-input" value="${trip.jpyPerAud}" min="1" step="0.1"></label>
+      <div class="budget-controls">
+        <label class="rate-field">1 AUD = ¥<input type="number" id="rate-input" value="${trip.jpyPerAud}" min="1" step="0.1"></label>
+        <div class="currency-toggle">
+          <span class="currency-toggle-label">Enter in</span>
+          <div class="seg">
+            <button class="seg-btn ${mode === "JPY" ? "active" : ""}" data-cur="JPY">¥ JPY</button>
+            <button class="seg-btn ${mode === "AUD" ? "active" : ""}" data-cur="AUD">A$ AUD</button>
+          </div>
+        </div>
+      </div>
       <div class="budget-totals">
         <div class="budget-total-block">
           <span class="budget-total-label">Estimated</span>
-          <span class="budget-total-jpy">${money(totalEst)}</span>
-          <span class="budget-total-aud">≈ ${moneyAud(totalEst)}</span>
+          <span class="budget-total-jpy">${primary(totalEst)}</span>
+          <span class="budget-total-aud">≈ ${sub(totalEst)}</span>
         </div>
         <div class="budget-total-block">
           <span class="budget-total-label">Actual</span>
-          <span class="budget-total-jpy">${money(totalAct)}</span>
-          <span class="budget-total-aud">≈ ${moneyAud(totalAct)}</span>
+          <span class="budget-total-jpy">${primary(totalAct)}</span>
+          <span class="budget-total-aud">≈ ${sub(totalAct)}</span>
         </div>
       </div>
-      <div class="budget-confirmed-line">Confirmed bookings: <strong>${money(confirmed)}</strong> ≈ ${moneyAud(confirmed)} <span class="muted">— real total from the Bookings tab</span></div>
+      <div class="budget-confirmed-line">Confirmed bookings: <strong>${primary(confirmed)}</strong> ≈ ${sub(confirmed)} <span class="muted">— real total from the Bookings tab</span></div>
     </div>
-    <p class="budget-disclaimer">Estimates are rough planning placeholders (some based on dynamic theme-park pricing). The AUD rate is editable above — set it to your card's real rate.</p>
+    <p class="budget-disclaimer">Estimates are rough planning placeholders (some based on dynamic theme-park pricing). Set the AUD rate, then switch “Enter in” to type amounts in ¥ or A$ — they convert automatically.</p>
     <div class="budget-cards">
       ${trip.budget.map((b) => `
         <div class="budget-card" data-budget-id="${b.id}">
@@ -1051,14 +1074,14 @@ function renderBudget() {
           </div>
           <div class="budget-card-fields">
             <label class="budget-money-field">
-              <span>Estimated</span>
-              <input type="number" data-field="estimated" value="${b.estimated || 0}" min="0" step="100">
-              <span class="aud-sub">≈ ${moneyAud(b.estimated)}</span>
+              <span>Estimated (${unit})</span>
+              <input type="number" data-field="estimated" value="${inputVal(b.estimated)}" min="0" step="${step}">
+              <span class="aud-sub">≈ ${sub(b.estimated)}</span>
             </label>
             <label class="budget-money-field">
-              <span>Actual</span>
-              <input type="number" data-field="actual" value="${b.actual || 0}" min="0" step="100">
-              <span class="aud-sub">≈ ${moneyAud(b.actual)}</span>
+              <span>Actual (${unit})</span>
+              <input type="number" data-field="actual" value="${inputVal(b.actual)}" min="0" step="${step}">
+              <span class="aud-sub">≈ ${sub(b.actual)}</span>
             </label>
           </div>
           ${b.notes ? `<p class="budget-card-notes">${escapeHtml(b.notes)}</p>` : ""}
@@ -1078,12 +1101,24 @@ function renderBudget() {
     }
   });
 
+  container.querySelectorAll(".seg-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      trip.budgetInputCurrency = btn.dataset.cur;
+      saveTrip();
+      renderBudget();
+    });
+  });
+
   container.querySelectorAll(".budget-card input[data-field]").forEach((input) => {
     input.addEventListener("change", () => {
       const card = input.closest(".budget-card");
       const b = trip.budget.find((x) => x.id === card.dataset.budgetId);
       const field = input.dataset.field;
-      b[field] = field === "label" ? input.value : Number(input.value) || 0;
+      if (field === "label") {
+        b.label = input.value;
+      } else {
+        b[field] = mode === "AUD" ? jpyFromAud(input.value) : Number(input.value) || 0;
+      }
       saveTrip();
       renderBudget();
     });
